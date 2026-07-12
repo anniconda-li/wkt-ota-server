@@ -5,13 +5,10 @@ services:
     image: wkt-ota-server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:18082:8000"
+      - "18082:8000"
     environment:
-      OTA_PUBLIC_BASE_URL: "${OTA_PUBLIC_BASE_URL:-https://ota.example.com}"
+      OTA_PUBLIC_BASE_URL: "${OTA_PUBLIC_BASE_URL:-http://139.129.17.67:18082}"
       OTA_DATA_DIR: /app/data
-      OTA_DEVICE_TOKEN: "${OTA_DEVICE_TOKEN:-}"
-      OTA_ALLOW_TOKEN_QUERY: "${OTA_ALLOW_TOKEN_QUERY:-false}"
-      OTA_MAX_CHUNK_SIZE: "${OTA_MAX_CHUNK_SIZE:-49152}"
       OTA_LOG_LEVEL: "${OTA_LOG_LEVEL:-INFO}"
     volumes:
       - ./data:/app/data

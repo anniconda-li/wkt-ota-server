@@ -14,11 +14,8 @@ from app.main import create_app
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        public_base_url="https://ota.example.com",
+        public_base_url="http://139.129.17.67:18082",
         data_dir=tmp_path / "data",
-        device_token=None,
-        allow_token_query=False,
-        max_chunk_size=49152,
         log_level="INFO",
     )
 

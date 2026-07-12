@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .validation import validate_device_id, validate_hardware, validate_version
 
 
-Network = Literal["wifi", "ml307c"]
+Network = Literal["wifi"]
 ReportStatus = Literal[
     "download_started", "verified", "rebooting", "success", "failed", "rolled_back"
 ]

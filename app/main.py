@@ -6,14 +6,13 @@ from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Path as ApiPath, Query, Request, Response, status
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from . import __version__
 from .config import Settings
 from .db import Database
 from .models import OtaReport
-from .security import verify_device_token
 from .semver import SemVer
 from .storage import firmware_path, iter_file
 from .validation import validate_channel, validate_device_id, validate_hardware, validate_version
@@ -64,9 +63,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.database = database
 
-    def authorize(request: Request) -> None:
-        verify_device_token(request, settings)
-
     def find_firmware(hardware: str, version: str) -> tuple[dict, Path]:
         hardware = _validated(hardware, validate_hardware)
         version = _validated(version, validate_version)
@@ -91,12 +87,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"service": SERVICE_NAME, "version": __version__, "status": "healthy"}
 
-    @app.get("/api/v1/ota/check", dependencies=[Depends(authorize)])
+    @app.get("/api/v1/ota/check")
     def check_update(
         device_id: Annotated[str, Query(min_length=1, max_length=128)],
         hardware: Annotated[str, Query(min_length=1, max_length=64)],
         current_version: Annotated[str, Query(min_length=1, max_length=128)],
-        network: Literal["wifi", "ml307c"],
+        network: Literal["wifi"],
         channel: Annotated[str, Query(min_length=1, max_length=32)] = "stable",
     ) -> dict:
         _validated(device_id, validate_device_id)
@@ -123,14 +119,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "min_battery": latest["min_battery"],
             "release_notes": latest["release_notes"],
             "firmware_url": f"{base}/api/v1/ota/firmware/{encoded_hardware}/{encoded_version}",
-            "chunk_url": f"{base}/api/v1/ota/chunk/{encoded_hardware}/{encoded_version}",
-            "chunk_size": settings.max_chunk_size,
         }
 
-    @app.get(
-        "/api/v1/ota/firmware/{hardware}/{version}",
-        dependencies=[Depends(authorize)],
-    )
+    @app.get("/api/v1/ota/firmware/{hardware}/{version}")
     def download_firmware(
         request: Request,
         hardware: Annotated[str, ApiPath(min_length=1, max_length=64)],
@@ -157,37 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return StreamingResponse(iter_file(path, start, length), status_code=206, headers=headers)
 
-    @app.get(
-        "/api/v1/ota/chunk/{hardware}/{version}",
-        dependencies=[Depends(authorize)],
-    )
-    def download_chunk(
-        hardware: Annotated[str, ApiPath(min_length=1, max_length=64)],
-        version: Annotated[str, ApiPath(min_length=1, max_length=128)],
-        offset: Annotated[int, Query(ge=0)],
-        length: Annotated[int, Query(ge=1)],
-    ) -> StreamingResponse:
-        if length > settings.max_chunk_size:
-            raise HTTPException(status_code=422, detail=f"length must not exceed {settings.max_chunk_size}")
-        _, path = find_firmware(hardware, version)
-        size = path.stat().st_size
-        if offset >= size:
-            raise HTTPException(
-                status_code=416,
-                detail="offset outside firmware",
-                headers={"X-Firmware-Size": str(size)},
-            )
-        actual_length = min(length, size - offset)
-        headers = {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": str(actual_length),
-            "X-Firmware-Size": str(size),
-            "X-Chunk-Offset": str(offset),
-            "X-Chunk-Length": str(actual_length),
-        }
-        return StreamingResponse(iter_file(path, offset, actual_length), headers=headers)
-
-    @app.post("/api/v1/ota/report", status_code=201, dependencies=[Depends(authorize)])
+    @app.post("/api/v1/ota/report", status_code=201)
     def report_result(report: OtaReport, response: Response) -> dict[str, int | bool]:
         report_id = database.insert_report(report.model_dump())
         response.headers["Location"] = f"/api/v1/ota/report/{report_id}"

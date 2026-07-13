@@ -44,6 +44,37 @@ python -m app.cli enable  --hardware walkie-v1 --version 0.12.0
 
 发布命令流式计算大小和 SHA-256，将文件原子复制到 `data/firmware/{hardware}/{version}/firmware.bin`，再把元数据写入 `data/ota.db`。相同 hardware/version 会被拒绝，不会静默覆盖。固件文件不存为 SQLite BLOB，也不打入镜像。
 
+### 电气硬件版本隔离
+
+`device_id` 表示某一台具体设备，`hardware` 表示固件兼容的电气硬件版本，两者不能混用。服务始终以设备请求中明确提供的 `hardware` 和 `channel` 查询 release，不会根据 `device_id` 推断、覆盖或改写 `hardware`，也不会在 `walkie-v1-rev-1`、`walkie-v1-rev-2` 与旧 `walkie-v1` 之间回退匹配。
+
+当前设备标识约定：
+
+| 设备 | `device_id` | `hardware` |
+| --- | --- | --- |
+| device/001 | `walkie-01` | `walkie-v1-rev-1` |
+| device/002 | `walkie-02` | `walkie-v1-rev-2` |
+
+两个电气版本即使版本号相同，也必须分别发布不同的 application `.bin`：
+
+```bash
+python -m app.cli publish \
+  --hardware walkie-v1-rev-1 \
+  --channel stable \
+  --version 0.11.7 \
+  --file /app/data/incoming/walkie-v1-rev-1-0.11.7.bin \
+  --notes "一号硬件更新说明"
+
+python -m app.cli publish \
+  --hardware walkie-v1-rev-2 \
+  --channel stable \
+  --version 0.11.7 \
+  --file /app/data/incoming/walkie-v1-rev-2-0.11.7.bin \
+  --notes "二号硬件更新说明"
+```
+
+数据库唯一键保持为 `hardware + version`，所以以上两条记录可以同时存在，但同一 `hardware/version` 不能重复发布。当前只使用 `stable` 频道；不要将唯一键扩展为 `hardware + channel + version`，因为下载 URL 不含 channel。固件分别保存到各自硬件目录，旧 `walkie-v1` 记录和文件继续保留且仍然合法。
+
 ## Docker Compose
 
 ```bash

@@ -4,6 +4,41 @@
 
 `hardware` 为 1–64 位 ASCII 字母、数字、下划线或连字符且首位为字母或数字；`version` 必须是 SemVer 2.0；`channel` 为 1–32 位小写字母、数字或连字符。版本严格按 SemVer 优先级比较，不能按字符串排序。
 
+## 电气硬件版本隔离契约
+
+`device_id` 是具体设备身份，`hardware` 是固件兼容的电气硬件版本。当前统一标识为：
+
+| 设备 | `device_id` | `hardware` |
+| --- | --- | --- |
+| device/001 | `walkie-01` | `walkie-v1-rev-1` |
+| device/002 | `walkie-02` | `walkie-v1-rev-2` |
+
+服务将请求中的 `device_id` 和 `hardware` 作为相互独立的字段处理：不得根据 `device_id` 推断、覆盖或改写 `hardware`。检查更新只精确查询请求的 `hardware + channel`；没有匹配项就返回 `{"update": false}`，不得回退到另一个 rev 或旧 `walkie-v1`。响应中的 `hardware` 及 `firmware_url` 硬件路径必须与匹配的发布记录一致。
+
+release 数据库唯一键保持为 `UNIQUE(hardware, version)`，当前只使用 `stable` 频道。同一 `0.11.7` 可以分别为 rev-1 和 rev-2 保存不同文件、大小与 SHA-256，同一 hardware/version 的重复发布必须拒绝。下载 URL 不含 channel，因此不得将唯一键改为 `hardware + channel + version`。旧 `walkie-v1` release 和固件仍合法，但不会成为新 rev 的回退项。
+
+发布 rev-1：
+
+```bash
+python -m app.cli publish \
+  --hardware walkie-v1-rev-1 \
+  --channel stable \
+  --version 0.11.7 \
+  --file /app/data/incoming/walkie-v1-rev-1-0.11.7.bin \
+  --notes "一号硬件更新说明"
+```
+
+发布 rev-2：
+
+```bash
+python -m app.cli publish \
+  --hardware walkie-v1-rev-2 \
+  --channel stable \
+  --version 0.11.7 \
+  --file /app/data/incoming/walkie-v1-rev-2-0.11.7.bin \
+  --notes "二号硬件更新说明"
+```
+
 ## 健康检查
 
 `GET /health` 返回服务名、版本和健康状态，不返回配置、秘密或文件路径。
@@ -56,6 +91,8 @@
 
 release 未启用、元数据不存在或固件文件缺失返回 `404`；路径参数非法返回 `422`；文件实际大小与 SQLite 元数据不一致返回 `500`。
 
+下载处理严格按 URL 中的 `{hardware}/{version}` 查询元数据并读取 `/app/data/firmware/{hardware}/{version}/firmware.bin`。例如 rev-1 URL 只能读取 rev-1 目录；即使 rev-2 存在相同版本号，也不能跨目录或回退读取。
+
 ## 结果上报
 
 `POST /api/v1/ota/report`
@@ -79,6 +116,8 @@ release 未启用、元数据不存在或固件文件缺失返回 `404`；路径
 ```json
 {"accepted": true, "report_id": 123}
 ```
+
+Report 按请求原样保存 `device_id` 与 `hardware`，不维护二者之间的静默映射。device/001 应报告 `walkie-01` 与 `walkie-v1-rev-1`，device/002 应报告 `walkie-02` 与 `walkie-v1-rev-2`。
 
 ## 存储与设备状态机
 
